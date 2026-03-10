@@ -72,7 +72,8 @@ async def search_tenders(
     tender_statuses: Annotated[List[int], "Tender status IDs to filter by"] = None,
     tender_methods: Annotated[List[int], "Tender method IDs to filter by"] = None,
     tender_sub_methods: Annotated[List[int], "Tender sub-method IDs to filter by"] = None,
-    okas_codes: Annotated[List[str], "OKAS classification codes to filter by"] = None,
+    okas_codes: Annotated[List[str], "OKAS classification codes to filter by (e.g., ['48000000', '72000000'])"] = None,
+    okas_names: Annotated[List[str], "OKAS classification names matching the codes (must be same length as okas_codes). If not provided, names will be auto-fetched from the API."] = None,
     authority_ids: Annotated[List[int], "Authority/institution IDs to filter by"] = None,
     proposal_types: Annotated[List[int], "Proposal type IDs: 1=Götürü-Anahtar Teslimi Götürü, 2=Birim Fiyat, 3=Karma"] = None,
     announcement_types: Annotated[List[int], "Announcement type IDs: 1=Ön İlan, 2=İhale İlanı, 3=Sonuç İlanı, etc."] = None,
@@ -116,6 +117,15 @@ async def search_tenders(
         tender_date_start = today
         tender_date_end = None
     
+    # Auto-fetch OKAS names if codes are provided but names are not
+    okas_names_resolved = okas_names
+    if okas_codes and not okas_names:
+        try:
+            okas_names_resolved = await ekap_client.resolve_okas_names(okas_codes)
+        except Exception:
+            # If auto-fetch fails, send empty names (filter may not work fully)
+            okas_names_resolved = []
+
     # Convert plate numbers to API IDs
     api_province_ids = None
     if provinces:
@@ -165,6 +175,7 @@ async def search_tenders(
         tender_methods=tender_methods,
         tender_sub_methods=tender_sub_methods,
         okas_codes=okas_codes,
+        okas_names=okas_names_resolved,
         authority_ids=authority_ids,
         proposal_types=proposal_types,
         announcement_types=announcement_types,

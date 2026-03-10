@@ -287,6 +287,7 @@ class EKAPClient:
         tender_methods: List[int] = None,
         tender_sub_methods: List[int] = None,
         okas_codes: List[str] = None,
+        okas_names: List[str] = None,
         authority_ids: List[int] = None,
         proposal_types: List[int] = None,
         announcement_types: List[int] = None,
@@ -344,7 +345,7 @@ class EKAPClient:
             "asiriDusukTeklifIdList": [],
             "istisnaMaddeIdList": [],
             "okasBransKodList": okas_codes or [],
-            "okasBransAdiList": [],
+            "okasBransAdiList": okas_names or [],
             "titubbKodList": [],
             "gmdnKodList": [],
             # Boolean filters
@@ -555,6 +556,50 @@ class EKAPClient:
                 "message": str(e)
             }
     
+    async def resolve_okas_names(self, okas_codes: List[str]) -> List[str]:
+        """Resolve OKAS code values to their Turkish names by querying the API."""
+        if not okas_codes:
+            return []
+
+        # Build filter: ["kod", "=", code1] or ["kod", "=", code2] or ...
+        filters = []
+        for i, code in enumerate(okas_codes):
+            if i > 0:
+                filters.append("or")
+            filters.append(["kod", "=", code])
+
+        okas_params = {
+            "loadOptions": {
+                "filter": {
+                    "sort": [],
+                    "group": [],
+                    "filter": filters,
+                    "totalSummary": [],
+                    "groupSummary": [],
+                    "select": [],
+                    "preSelect": [],
+                    "primaryKey": []
+                },
+                "take": len(okas_codes)
+            }
+        }
+
+        try:
+            response_data = await self._make_request(self.okas_endpoint, okas_params)
+            okas_items = response_data.get("loadResult", {}).get("data", [])
+
+            # Build code->name lookup
+            code_to_name = {}
+            for item in okas_items:
+                kod = item.get("kod")
+                if kod:
+                    code_to_name[kod] = item.get("kalemAdi", "")
+
+            # Return names in same order as input codes
+            return [code_to_name.get(code, "") for code in okas_codes]
+        except Exception:
+            return ["" for _ in okas_codes]
+
     async def search_authorities(
         self,
         search_term: str = "",
