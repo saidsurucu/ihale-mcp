@@ -720,7 +720,7 @@ class EKAPClient:
     
     async def get_tender_announcements(
         self,
-        tender_id: int
+        tender_id: str
     ) -> Dict[str, Any]:
         """Get all announcements for a specific tender"""
         
@@ -823,13 +823,13 @@ class EKAPClient:
     
     async def get_tender_details(
         self,
-        tender_id: int
+        tender_id: str
     ) -> Dict[str, Any]:
         """Get comprehensive details for a specific tender"""
         
         # Build API request payload for tender details
         details_params = {
-            "ihaleId": str(tender_id)
+            "ihaleId": tender_id
         }
         
         try:
@@ -1003,7 +1003,7 @@ class EKAPClient:
     
     async def get_tender_document_url(
         self,
-        tender_id: int,
+        tender_id: str,
         islem_id: str = "1"
     ) -> Dict[str, Any]:
         """Get document URL for a specific tender"""

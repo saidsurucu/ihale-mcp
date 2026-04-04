@@ -307,7 +307,7 @@ async def get_recent_tenders(
 
 @mcp.tool
 async def get_tender_announcements(
-    tender_id: Annotated[int, "The tender ID to get announcements for"]
+    tender_id: Annotated[str, "The tender ID to get announcements for"]
 ) -> Dict[str, Any]:
     """
     Get all announcements for a tender with HTML-to-Markdown conversion.
@@ -334,7 +334,7 @@ async def get_tender_announcements(
 
 @mcp.tool
 async def get_tender_details(
-    tender_id: Annotated[int, "The tender ID to get comprehensive details for"]
+    tender_id: Annotated[str, "The tender ID to get comprehensive details for"]
 ) -> Dict[str, Any]:
     """
     Get comprehensive tender details with HTML-to-Markdown conversion.

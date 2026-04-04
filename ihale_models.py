@@ -48,7 +48,7 @@ class AnnouncementType(BaseModel):
 class TenderDocument(BaseModel):
     """Tender document information"""
     id: int
-    tender_id: int = Field(alias="ihaleId")
+    tender_id: str = Field(alias="ihaleId")
     date: str = Field(alias="tarih")
 
 class TenderInfo(BaseModel):
