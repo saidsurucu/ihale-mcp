@@ -5,6 +5,12 @@ EKAP v2 API client for Turkish government tender/procurement data - FIXED VERSIO
 
 import httpx
 import ssl
+import os
+import uuid
+import base64
+import time
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives import padding as crypto_padding
 from typing import Dict, Any, Optional, List, Literal
 from datetime import datetime
 from io import BytesIO
@@ -32,10 +38,13 @@ class EKAPClient:
         # Direct Procurement (Doğrudan Temin) legacy endpoint (GET)
         self.direct_procurement_url = "https://ekap.kik.gov.tr/EKAP/Ortak/YeniIhaleAramaData.ashx"
         
+        # AES key for request signing (from EKAP frontend environment config)
+        self._r8fact_key = b'Qm2LtXR0aByP69vZNKef4wMJ'
+
         # Common headers for all requests
         self.headers = {
             'Accept': 'application/json',
-            'Accept-Language': 'null',
+            'Accept-Language': 'tr',
             'Connection': 'keep-alive',
             'Content-Type': 'application/json',
             'Origin': 'https://ekapv2.kik.gov.tr',
@@ -54,11 +63,37 @@ class EKAPClient:
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
         return ssl_context
-    
+
+    def _aes_cbc_encrypt(self, plaintext: str, key: bytes, iv: bytes) -> bytes:
+        """Encrypt plaintext with AES-CBC and PKCS7 padding."""
+        padder = crypto_padding.PKCS7(128).padder()
+        padded = padder.update(plaintext.encode()) + padder.finalize()
+        cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
+        enc = cipher.encryptor()
+        return enc.update(padded) + enc.finalize()
+
+    def _generate_security_headers(self) -> Dict[str, str]:
+        """Generate AES-signed security headers required by EKAP v2 API."""
+        guid = str(uuid.uuid4())
+        iv = os.urandom(16)
+        ts_ms = str(int(time.time() * 1000))
+
+        r8id = base64.b64encode(self._aes_cbc_encrypt(guid, self._r8fact_key, iv)).decode()
+        ts_enc = base64.b64encode(self._aes_cbc_encrypt(ts_ms, self._r8fact_key, iv)).decode()
+        siv = base64.b64encode(iv).decode()
+
+        return {
+            'X-Custom-Request-Guid': guid,
+            'X-Custom-Request-Siv': siv,
+            'X-Custom-Request-Ts': ts_enc,
+            'X-Custom-Request-R8id': r8id,
+        }
+
     async def _make_request(self, endpoint: str, params: dict) -> dict:
         """Make an API request to EKAP v2"""
         ssl_context = self._create_ssl_context()
-        
+        request_headers = {**self.headers, **self._generate_security_headers()}
+
         async with httpx.AsyncClient(
             timeout=30.0,
             verify=ssl_context,
@@ -68,7 +103,7 @@ class EKAPClient:
             response = await client.post(
                 f"{self.base_url}{endpoint}",
                 json=params,
-                headers=self.headers
+                headers=request_headers
             )
             response.raise_for_status()
             return response.json()
