@@ -180,9 +180,11 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
-# Test files
+# Test files (geçici/deneme scriptleri kök dizinde tutulmaz)
 test_*.py
 *test*.py
+# ...ancak tests/ altındaki kalıcı test suite'i takip edilir
+!tests/**/*.py
 
 # Debug files
 debug_*.py

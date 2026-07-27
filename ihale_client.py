@@ -3,7 +3,9 @@
 EKAP v2 API client for Turkish government tender/procurement data - FIXED VERSION
 """
 
+import asyncio
 import httpx
+import re
 import ssl
 import os
 import uuid
@@ -23,6 +25,124 @@ from ihale_models import (
     DIRECT_PROCUREMENT_STATUS_ALIASES,
     DIRECT_PROCUREMENT_SCOPE_ALIASES,
 )
+
+# Sonuç ilanı ayrıştırma yardımcıları
+#
+# EKAP'ın arama indeksi sonuç ilanlarını kapsamadığı ve ilan listesindeki
+# "istekliAdi" alanı her zaman boş geldiği için kazanan/bedel bilgisi yalnızca
+# sonuç ilanı metninden çıkarılabiliyor.
+
+_TR_FOLD = str.maketrans({
+    "Ç": "C", "Ğ": "G", "İ": "I", "I": "I", "Ö": "O", "Ş": "S", "Ü": "U",
+    "ç": "C", "ğ": "G", "ı": "I", "i": "I", "ö": "O", "ş": "S", "ü": "U",
+})
+
+# Ticaret ünvanı ekleri. Firmanın ayırt edici adına katkı vermedikleri için
+# eşleştirmeden önce atılır.
+_LEGAL_SUFFIX_TOKENS = {
+    "LIMITED", "LTD", "SIRKETI", "SIRKET", "STI", "ANONIM", "AS", "A", "S",
+    "SANAYI", "SAN", "TICARET", "TIC", "VE", "KOLLEKTIF", "KOMANDIT",
+}
+
+
+def normalize_company_name(name: Optional[str]) -> str:
+    """Firma adını karşılaştırılabilir tek biçime indirger.
+
+    Büyük harfe çevirir, Türkçe karakterleri katlar, noktalamayı temizler ve
+    ticaret ünvanı eklerini atar. Aynı firmanın "LTD. ŞTİ." / "LİMİTED ŞİRKETİ"
+    gibi farklı yazımlarının eşleşmesini sağlar.
+    """
+    if not name:
+        return ""
+
+    folded = name.translate(_TR_FOLD).upper()
+    # Noktalamayı boşluğa çevir; harf ve rakamları koru.
+    cleaned = re.sub(r"[^0-9A-Z]+", " ", folded)
+
+    kept = [tok for tok in cleaned.split() if tok not in _LEGAL_SUFFIX_TOKENS]
+    return " ".join(kept)
+
+
+def _clean_cell(value: Optional[str]) -> Optional[str]:
+    """Markdown tablo hücresini temizler.
+
+    EKAP'ın HTML'inde kalan yorum artıkları ("--> ") ve kalın işaretleri
+    ayıklar. Değer boşsa None döner.
+    """
+    if value is None:
+        return None
+    text = value.replace("-->", " ").replace("**", " ")
+    text = re.sub(r"\s+", " ", text).strip()
+    return text or None
+
+
+def _find_field(markdown: str, label_pattern: str) -> Optional[str]:
+    """Sonuç ilanı tablosundan bir alanın değerini döndürür.
+
+    Satırlar `| **a)** Etiket | : | Değer |` biçiminde; ayırıcı bazı satırlarda
+    `**:**` olarak kalın geliyor. Birden çok eşleşme varsa ilki döner (kısmi
+    teklifli ilanlarda "Yaklaşık Maliyeti" iki kez geçiyor; ilki ihalenin
+    tamamına ait olan).
+    """
+    if not markdown:
+        return None
+    match = re.search(
+        rf"{label_pattern}\s*\**\s*\|\s*\**:\**\s*\|([^|\n]*)",
+        markdown,
+        re.IGNORECASE,
+    )
+    return _clean_cell(match.group(1)) if match else None
+
+
+def _parse_amount(value: Optional[str]) -> Optional[float]:
+    """Türkçe biçimli parasal değeri float'a çevirir ("8.500.000,00 TRY")."""
+    if not value:
+        return None
+    match = re.search(r"([\d.]+,\d+|\d+)", value)
+    if not match:
+        return None
+    number = match.group(1).replace(".", "").replace(",", ".")
+    try:
+        return float(number)
+    except ValueError:
+        return None
+
+
+def _parse_int(value: Optional[str]) -> Optional[int]:
+    if not value:
+        return None
+    match = re.search(r"\d+", value)
+    return int(match.group(0)) if match else None
+
+
+def parse_result_announcement(markdown: Optional[str]) -> Dict[str, Any]:
+    """Sonuç İlanı markdown'ından yapılandırılmış alanlar çıkarır.
+
+    Bulunamayan alanlar None döner; tahmin yapılmaz.
+    """
+    md = markdown or ""
+
+    amount_raw = _find_field(md, r"Bedeli")
+    currency = None
+    if amount_raw:
+        currency_match = re.search(r"\b([A-Z]{3})\b", amount_raw)
+        currency = currency_match.group(1) if currency_match else None
+
+    return {
+        "ikn": _find_field(md, r"İhale kayıt numarası"),
+        # Yapım ihalelerinde etiket "Yüklenicisi", diğerlerinde "Yüklenici".
+        "winner": _find_field(md, r"Yüklenici(?:si)?"),
+        "winner_nationality": _find_field(md, r"Yüklenicinin uyruğu"),
+        "winner_address": _find_field(md, r"Yüklenicinin adresi"),
+        "contract_amount": _parse_amount(amount_raw),
+        "currency": currency,
+        "contract_date": _find_field(md, r"4- Sözleşmenin[\s\S]{0,200}?Tarihi"),
+        "contract_duration": _find_field(md, r"4- Sözleşmenin[\s\S]{0,400}?Süresi"),
+        "estimated_cost": _parse_amount(_find_field(md, r"(?<!Kısımlarının )Yaklaşık Maliyeti")),
+        "bid_count": _parse_int(_find_field(md, r"Toplam Teklif Sayısı")),
+        "valid_bid_count": _parse_int(_find_field(md, r"Toplam Geçerli Teklif Sayısı")),
+    }
+
 
 class EKAPClient:
     """Client for EKAP v2 API"""
@@ -769,6 +889,15 @@ class EKAPClient:
                         print(f"Warning: Failed to convert HTML to markdown: {e}")
                         markdown_content = None
                 
+                # EKAP'ın "istekliAdi" alanı sonuç ilanlarında dahi boş geliyor.
+                # Kazanan ve sözleşme bilgileri yalnızca ilan metninde bulunduğu
+                # için sonuç ilanları (tip 4) ayrıca ayrıştırılır.
+                result_info = None
+                bidder_name = announcement.get("istekliAdi")
+                if announcement_type == "4" and markdown_content:
+                    result_info = parse_result_announcement(markdown_content)
+                    bidder_name = bidder_name or result_info.get("winner")
+
                 results.append({
                     "id": announcement.get("id"),
                     "type": {
@@ -780,7 +909,8 @@ class EKAPClient:
                     "status": announcement.get("status"),
                     "tender_id": announcement.get("ihaleId"),
                     "contract_id": announcement.get("sozlesmeId"),
-                    "bidder_name": announcement.get("istekliAdi"),
+                    "bidder_name": bidder_name,
+                    "result_info": result_info,
                     "markdown_content": markdown_content,
                     "content_preview": self._extract_text_preview(html_content)
                 })
@@ -802,6 +932,154 @@ class EKAPClient:
                 "message": str(e)
             }
     
+    async def search_tender_results_by_bidder(
+        self,
+        bidder_name: str,
+        authority_ids: List[int] = None,
+        provinces: List[int] = None,
+        okas_codes: List[str] = None,
+        date_start: Optional[str] = None,
+        date_end: Optional[str] = None,
+        tender_types: List[int] = None,
+        max_tenders: int = 500,
+        concurrency: int = 8,
+    ) -> Dict[str, Any]:
+        """Belirtilen kapsamdaki sonuç ilanlarını tarayıp yükleniciye göre eşleştirir.
+
+        EKAP'ın arama indeksi sonuç ilanlarını kapsamadığı için firma adından
+        ihaleye giden doğrudan bir sorgu yok. Bu metot, daraltılmış bir kapsamdaki
+        sonuçlanmış ihalelerin sonuç ilanlarını çekip yüklenici alanında eşleştirir.
+        Tam bir ters indeks değildir.
+        """
+        if not bidder_name or not bidder_name.strip():
+            return {
+                "error": "Geçersiz parametre",
+                "message": "bidder_name (yüklenici adı) zorunludur.",
+            }
+
+        if not (authority_ids or provinces or okas_codes):
+            return {
+                "error": "Kapsam filtresi gerekli",
+                "message": (
+                    "Bu araç bir taramadır ve kapsam daraltılmadan çalışmaz. "
+                    "authority_ids, provinces veya okas_codes parametrelerinden "
+                    "en az birini verin. Tarih aralığı (date_start/date_end) ile "
+                    "daha da daraltabilirsiniz."
+                ),
+            }
+
+        scope = {
+            "authority_ids": authority_ids,
+            "provinces": provinces,
+            "okas_codes": okas_codes,
+            "date_start": date_start,
+            "date_end": date_end,
+            "tender_types": tender_types,
+            "max_tenders": max_tenders,
+        }
+
+        search_kwargs = {
+            "search_text": None,
+            "tender_statuses": [15],  # Sonuç İlanı Yayımlanmış
+            "authority_ids": authority_ids,
+            "provinces": provinces,
+            "okas_codes": okas_codes,
+            "tender_types": tender_types,
+            "tender_date_start": date_start,
+            "tender_date_end": date_end,
+        }
+
+        # Önce kapsamın büyüklüğünü öğren; tavanı aşıyorsa sessizce kesme.
+        probe = await self.search_tenders(limit=1, skip=0, **search_kwargs)
+        if probe.get("error"):
+            return probe
+
+        total = probe.get("total_count", 0)
+        if total > max_tenders:
+            return {
+                "error": "Kapsam çok geniş",
+                "message": (
+                    f"Belirtilen kapsam {total} sonuçlanmış ihale içeriyor, "
+                    f"tavan {max_tenders}. Kapsamı daraltın (idare, il, OKAS veya "
+                    f"tarih aralığı) ya da max_tenders değerini yükseltin."
+                ),
+                "scope_size": total,
+                "scope": scope,
+            }
+
+        # Kapsamdaki ihaleleri sayfalayarak topla.
+        tenders = []
+        page_size = 100
+        while len(tenders) < total:
+            page = await self.search_tenders(
+                limit=page_size, skip=len(tenders), **search_kwargs
+            )
+            if page.get("error"):
+                return page
+            batch = page.get("tenders") or []
+            if not batch:
+                break
+            tenders.extend(batch)
+
+        target = normalize_company_name(bidder_name)
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def scan(tender):
+            async with semaphore:
+                data = await self.get_tender_announcements(tender["id"])
+
+            if data.get("error"):
+                return []
+
+            found = []
+            result_announcements = [
+                a for a in (data.get("announcements") or [])
+                if a.get("type", {}).get("code") == "4"
+            ]
+            for index, announcement in enumerate(result_announcements):
+                parsed = parse_result_announcement(
+                    announcement.get("markdown_content")
+                )
+                winner = parsed.get("winner")
+                if not winner:
+                    continue
+                if target not in normalize_company_name(winner):
+                    continue
+
+                found.append({
+                    "ikn": tender.get("ikn"),
+                    "tender_id": tender.get("id"),
+                    "title": tender.get("name"),
+                    "authority": tender.get("authority"),
+                    "province": tender.get("province"),
+                    "tender_date": tender.get("tender_datetime"),
+                    "announcement_index": index,
+                    "winner": winner,
+                    "contract_amount": parsed.get("contract_amount"),
+                    "currency": parsed.get("currency"),
+                    "estimated_cost": parsed.get("estimated_cost"),
+                    "bid_count": parsed.get("bid_count"),
+                    "valid_bid_count": parsed.get("valid_bid_count"),
+                    "contract_date": parsed.get("contract_date"),
+                })
+            return found
+
+        scanned = await asyncio.gather(*[scan(t) for t in tenders])
+        matches = [m for group in scanned for m in group]
+
+        return {
+            "matches": matches,
+            "match_count": len(matches),
+            "scanned_tenders": len(tenders),
+            "scope": scope,
+            "note": (
+                "Bu bir taramadır, tam indeks değildir. Yalnızca belirtilen "
+                "kapsamdaki sonuç ilanları tarandı; kapsam dışındaki işler "
+                "bu sonuçta görünmez. Kısmi teklifli ihalelerde her kısım ayrı "
+                "kayıt olarak döner (announcement_index)."
+            ),
+        }
+
     def _extract_text_preview(self, html_content: str, max_length: int = 200) -> str:
         """Extract plain text preview from HTML content"""
         if not html_content:

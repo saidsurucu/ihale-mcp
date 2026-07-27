@@ -75,6 +75,12 @@ Tasarım notları:
 
 ### 3. `EKAPClient.search_tender_results_by_bidder(...)`
 
+İl parametresi mevcut `search_tenders` deseniyle aynı şekilde çalışır: MCP aracı plaka
+kodu (1-81) alır ve `PLATE_TO_API_ID` ile EKAP'ın kendi il ID'sine (245-325, alfabetik)
+çevirir; client katmanı EKAP ID'si bekler. Plaka doğrudan gönderilirse sorgu hata vermez,
+sessizce 0 sonuç döner — bu yüzden dönüşüm için regresyon testi var.
+
+
 Orkestrasyon. Akış:
 
 1. **Kapsam doğrula** — `authority_ids`, `provinces`, `okas_codes` alanlarından en az biri

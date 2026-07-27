@@ -76,7 +76,7 @@ async def search_tenders(
     okas_names: Annotated[List[str], "OKAS classification names matching the codes (must be same length as okas_codes). If not provided, names will be auto-fetched from the API."] = None,
     authority_ids: Annotated[List[int], "Authority/institution IDs to filter by"] = None,
     proposal_types: Annotated[List[int], "Proposal type IDs: 1=Götürü-Anahtar Teslimi Götürü, 2=Birim Fiyat, 3=Karma"] = None,
-    announcement_types: Annotated[List[int], "Announcement type IDs: 1=Ön İlan, 2=İhale İlanı, 3=Sonuç İlanı, etc."] = None,
+    announcement_types: Annotated[List[int], "Announcement type IDs: 1=Ön İlan, 2=İhale İlanı, 3=İptal İlanı, 4=Sonuç İlanı, 5=Ön Yeterlik İlanı, 6=Düzeltme İlanı"] = None,
     # Search scope parameters
     search_in_ikn: Annotated[bool, "Search in IKN (tender reference number)"] = True,
     search_in_title: Annotated[bool, "Search in tender title"] = True,
@@ -311,8 +311,12 @@ async def get_tender_announcements(
 ) -> Dict[str, Any]:
     """
     Get all announcements for a tender with HTML-to-Markdown conversion.
-    
+
     Returns: Ön İlan, İhale İlanı, Sonuç İlanı, İptal İlanı, etc.
+
+    Sonuç İlanı (type code 4) announcements also carry a parsed `result_info`
+    object with winner, contract_amount, estimated_cost, bid_count and
+    contract_date, so callers need not regex the markdown themselves.
     """
     
     # Use the client to get tender announcements (always converts to markdown)
@@ -330,6 +334,50 @@ async def get_tender_announcements(
         "tender_id": tender_id,
         "announcement_types_found": list(set(ann.get("type", {}).get("description", "Unknown") for ann in announcements))
     }
+
+
+@mcp.tool
+async def search_tender_results_by_bidder(
+    bidder_name: Annotated[str, "Company/bidder name to look for, e.g. 'DURAK GRUP'. Partial names work; legal suffixes (LTD ŞTİ, A.Ş.) are ignored."],
+    authority_ids: Annotated[List[int], "Authority IDs to scan (from search_authorities). Scope filter."] = None,
+    provinces: Annotated[List[int], "Province plate numbers to scan (6=Ankara, 34=İstanbul). Scope filter."] = None,
+    okas_codes: Annotated[List[str], "OKAS classification codes to scan. Scope filter."] = None,
+    date_start: Annotated[Optional[str], "Tender date range start (YYYY-MM-DD)"] = None,
+    date_end: Annotated[Optional[str], "Tender date range end (YYYY-MM-DD)"] = None,
+    tender_types: Annotated[List[int], "Tender types: 1=Mal, 2=Yapım, 3=Hizmet, 4=Danışmanlık"] = None,
+    max_tenders: Annotated[int, "Maximum tenders to scan before refusing (default 500)"] = 500,
+) -> Dict[str, Any]:
+    """
+    Find tenders WON by a company, by scanning result announcements in a narrowed scope.
+
+    IMPORTANT - this is a scan, not an index. EKAP's full-text search does NOT cover
+    result announcements (Sonuç İlanı), so a winner's name is unsearchable there and
+    there is no way to list every tender a company ever won.
+
+    You MUST narrow the scope: supply at least one of authority_ids, provinces or
+    okas_codes. Add date_start/date_end to narrow further. If the scope holds more
+    tenders than max_tenders, the call is refused with the real scope size rather
+    than silently scanning a partial slice.
+
+    Partial-lot tenders return one match per lot, distinguished by announcement_index.
+    """
+    # Convert plate numbers to API IDs (same as search_tenders)
+    api_province_ids = None
+    if provinces:
+        api_province_ids = [
+            api_id for api_id in (PLATE_TO_API_ID.get(p) for p in provinces) if api_id
+        ] or None
+
+    return await ekap_client.search_tender_results_by_bidder(
+        bidder_name=bidder_name,
+        authority_ids=authority_ids,
+        provinces=api_province_ids,
+        okas_codes=okas_codes,
+        date_start=date_start,
+        date_end=date_end,
+        tender_types=tender_types,
+        max_tenders=max_tenders,
+    )
 
 
 @mcp.tool

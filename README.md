@@ -106,8 +106,15 @@ Bu FastMCP sunucusu LLM modelleri için aşağıdaki araçları sunar:
     * **Döndürdüğü Değer**: Yakın tarihli ihale listesi
 
 * **`get_tender_announcements`**: Belirli bir ihalenin tüm duyurularını getirir.
-    * **Parametreler**: `tender_id`, `include_html`
+    * **Parametreler**: `tender_id`
     * **Döndürdüğü Değer**: Otomatik HTML-to-Markdown dönüştürülmüş ihale duyuruları
+    * **Sonuç İlanları için ek**: Sonuç İlanı (tip 4) duyuruları ayrıca ayrıştırılmış bir `result_info` nesnesi taşır: `winner` (yüklenici), `contract_amount` (sözleşme bedeli), `estimated_cost` (yaklaşık maliyet), `bid_count`, `valid_bid_count`, `contract_date`. Böylece istemcinin markdown'ı regex ile ayıklaması gerekmez.
+
+* **`search_tender_results_by_bidder`**: Bir firmanın **kazandığı** ihaleleri, daraltılmış bir kapsamdaki sonuç ilanlarını tarayarak bulur.
+    * **Parametreler**: `bidder_name` (zorunlu), `authority_ids` / `provinces` / `okas_codes` (en az biri zorunlu), `date_start`, `date_end`, `tender_types`, `max_tenders`
+    * **Döndürdüğü Değer**: `matches` (İKN, yüklenici, sözleşme bedeli, yaklaşık maliyet, teklif sayısı), `match_count`, `scanned_tenders`
+    * ⚠️ **Bu bir taramadır, tam indeks değildir.** EKAP'ın metin arama indeksi sonuç ilanlarını kapsamaz; kazanan adı orada aranamaz. Bu nedenle bir firmanın kazandığı **tüm** ihaleleri listelemek mümkün değildir. Kapsam daraltılmadan (idare/il/OKAS) araç çalışmaz; kapsam `max_tenders`'ı aşarsa sessizce kesmek yerine gerçek kapsam büyüklüğüyle hata döner.
+    * Kısmi teklifli ihalelerde her kısım ayrı kayıt olarak döner (`announcement_index`).
 
 * **`get_tender_details`**: Belirli bir ihalenin kapsamlı detaylarını getirir.
     * **Parametreler**: `tender_id`

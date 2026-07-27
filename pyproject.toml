@@ -13,3 +13,13 @@ dependencies = [
     "typing-extensions>=4.14.1",
     "fastapi>=0.116.1",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
