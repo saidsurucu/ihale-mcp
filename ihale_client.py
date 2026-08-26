@@ -158,8 +158,15 @@ class EKAPClient:
         # Direct Procurement (Doğrudan Temin) legacy endpoint (GET)
         self.direct_procurement_url = "https://ekap.kik.gov.tr/EKAP/Ortak/YeniIhaleAramaData.ashx"
         
-        # AES key for request signing (from EKAP frontend environment config)
-        self._r8fact_key = b'Qm2LtXR0aByP69vZNKef4wMJ'
+        # AES key for request signing (from EKAP frontend environment config).
+        # EKAP bu anahtarı ve başlık adlarını düzenli olarak değiştiriyor
+        # (Ağustos 2025'te iki kez değişti). Yeni anahtarı bulmak için:
+        # ekapv2.kik.gov.tr/ekap/search sayfası konsolunda
+        #   window.webpackChunkshell.push([[Symbol('p')],{},(r)=>{
+        #     for(const k in (r.c||{})){const e=r.c[k]?.exports;
+        #       if(e?.environment?.r8fact) console.log(e.environment.r8fact);}}]);
+        # Güncel anahtar (26 Ağustos 2025): 32 bayt → AES-256 (öncesi 24 bayt/AES-192)
+        self._r8fact_key = b'pfS7Xdn3YVkOzs3V79XUc91SD47mQD0g'
 
         # Common headers for all requests
         self.headers = {
@@ -202,11 +209,16 @@ class EKAPClient:
         ts_enc = base64.b64encode(self._aes_cbc_encrypt(ts_ms, self._r8fact_key, iv)).decode()
         siv = base64.b64encode(iv).decode()
 
+        # Başlık adları da anahtarla birlikte değişiyor; güncel şema
+        # (26 Ağustos 2025): X-Ekap-Sec-1..4. Tarayıcı 5 ve 6'yı da gönderiyor
+        # ama ilk dört olmadan 401, yalnız ilk dörtle 200 dönüyor.
+        # Başlık adlarını doğrulamak için: DevTools → Network →
+        # GetListByParameters → Request Headers.
         return {
-            'X-Custom-Request-Guid': guid,
-            'X-Custom-Request-Siv': siv,
-            'X-Custom-Request-Ts': ts_enc,
-            'X-Custom-Request-R8id': r8id,
+            'X-Ekap-Sec-1': r8id,    # AES(guid)
+            'X-Ekap-Sec-2': siv,     # IV (base64)
+            'X-Ekap-Sec-3': guid,    # düz guid
+            'X-Ekap-Sec-4': ts_enc,  # AES(ts_ms)
         }
 
     async def _make_request(self, endpoint: str, params: dict) -> dict:
