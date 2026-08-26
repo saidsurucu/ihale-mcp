@@ -75,7 +75,7 @@ async def search_tenders(
     okas_codes: Annotated[List[str], "OKAS classification codes to filter by (e.g., ['48000000', '72000000'])"] = None,
     okas_names: Annotated[List[str], "OKAS classification names matching the codes (must be same length as okas_codes). If not provided, names will be auto-fetched from the API."] = None,
     authority_ids: Annotated[List[int], "Authority/institution IDs to filter by"] = None,
-    proposal_types: Annotated[List[int], "Proposal type IDs: 1=Götürü-Anahtar Teslimi Götürü, 2=Birim Fiyat, 3=Karma"] = None,
+    proposal_types: Annotated[List[int], "Proposal type IDs: 1=Birim Fiyat, 2=Götürü-Anahtar Teslimi Götürü, 3=Karma"] = None,
     announcement_types: Annotated[List[int], "Announcement type IDs: 1=Ön İlan, 2=İhale İlanı, 3=İptal İlanı, 4=Sonuç İlanı, 5=Ön Yeterlik İlanı, 6=Düzeltme İlanı"] = None,
     # Search scope parameters
     search_in_ikn: Annotated[bool, "Search in IKN (tender reference number)"] = True,

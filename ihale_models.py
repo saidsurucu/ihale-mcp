@@ -272,9 +272,11 @@ PROVINCES = {
 }
 
 # Proposal Types - API expects numeric IDs
+# Kaynak: EKAP v2 Lookup/GetListByType (lookupType="OfferType").
+# Dikkat: 1=Birim Fiyat, 2=Götürü — sezgisel sıranın tersi.
 PROPOSAL_TYPES = {
-    1: "Götürü-Anahtar Teslimi Götürü",
-    2: "Birim Fiyat", 
+    1: "Birim Fiyat",
+    2: "Götürü-Anahtar Teslimi Götürü",
     3: "Karma"
 }
 
