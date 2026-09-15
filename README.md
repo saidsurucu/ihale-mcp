@@ -82,6 +82,14 @@ Bu bölüm, İhale MCP aracını 5ire gibi Claude Desktop dışındaki MCP istem
     ```
 4.  Claude Desktop'ı kapatıp yeniden başlatın.
 
+> **Tarayıcı bileşeni (bir kez):** EKAP v2, API isteklerini Cloudflare Turnstile insan doğrulamasına bağladı. İhale MCP bu doğrulamayı [Scrapling](https://github.com/D4Vinci/Scrapling)'in gizli (headless) tarayıcısıyla otomatik geçer; bunun için tarayıcının bir kez kurulması gerekir:
+>
+> ```
+> uvx --from git+https://github.com/saidsurucu/ihale-mcp scrapling install
+> ```
+>
+> Doğrulama çerezi yaklaşık 5 dakika geçerlidir; süresi dolunca ilk istek birkaç saniye daha uzun sürer.
+
 🛠️ **Kullanılabilir Araçlar (MCP Tools)**
 
 Bu FastMCP sunucusu LLM modelleri için aşağıdaki araçları sunar:

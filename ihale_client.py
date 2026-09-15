@@ -17,6 +17,7 @@ from typing import Dict, Any, Optional, List, Literal
 from datetime import datetime
 from io import BytesIO
 from markitdown import MarkItDown
+from ekap_verification import HumanVerificationProvider
 from ihale_models import (
     DIRECT_PROCUREMENT_TYPES,
     DIRECT_PROCUREMENT_STATUSES,
@@ -168,6 +169,11 @@ class EKAPClient:
         # Güncel anahtar (26 Ağustos 2025): 32 bayt → AES-256 (öncesi 24 bayt/AES-192)
         self._r8fact_key = b'pfS7Xdn3YVkOzs3V79XUc91SD47mQD0g'
 
+        # EKAP v2 API'si Turnstile doğrulama çerezi olmadan 428 dönüyor.
+        self.human_verification = HumanVerificationProvider()
+        # Testlerde httpx.MockTransport enjekte etmek için.
+        self._transport: Optional[httpx.AsyncBaseTransport] = None
+
         # Common headers for all requests
         self.headers = {
             'Accept': 'application/json',
@@ -224,21 +230,33 @@ class EKAPClient:
     async def _make_request(self, endpoint: str, params: dict) -> dict:
         """Make an API request to EKAP v2"""
         ssl_context = self._create_ssl_context()
-        request_headers = {**self.headers, **self._generate_security_headers()}
 
         async with httpx.AsyncClient(
             timeout=30.0,
             verify=ssl_context,
             http2=False,
-            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
+            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+            transport=self._transport,
         ) as client:
-            response = await client.post(
-                f"{self.base_url}{endpoint}",
-                json=params,
-                headers=request_headers
-            )
-            response.raise_for_status()
-            return response.json()
+            rejected_cookie = None
+            for attempt in range(2):
+                cookie = await self.human_verification.get_cookie(stale=rejected_cookie)
+                request_headers = {
+                    **self.headers,
+                    **self._generate_security_headers(),
+                    'Cookie': cookie,
+                }
+                response = await client.post(
+                    f"{self.base_url}{endpoint}",
+                    json=params,
+                    headers=request_headers
+                )
+                # Çerez sunucu tarafında geçersizleştiyse bir kez yenileyip dene.
+                if response.status_code == 428 and attempt == 0:
+                    rejected_cookie = cookie
+                    continue
+                response.raise_for_status()
+                return response.json()
     
     def _format_date_for_api(self, date_str: Optional[str]) -> Optional[str]:
         """Validate and return date in YYYY-MM-DD format expected by API"""

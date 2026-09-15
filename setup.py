@@ -16,7 +16,7 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/your-username/ihale-mcp",
-    py_modules=["ihale_mcp"],
+    py_modules=["ihale_mcp", "ihale_client", "ilan_client", "ihale_models", "ekap_verification"],
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
