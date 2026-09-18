@@ -12,7 +12,7 @@ dependencies = [
     "pydantic>=2.11.7",
     "typing-extensions>=4.14.1",
     "fastapi>=0.116.1",
-    "scrapling[fetchers]>=0.4.15",
+    "camoufox>=0.4.0",
 ]
 
 [dependency-groups]

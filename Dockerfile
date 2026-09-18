@@ -1,6 +1,6 @@
 FROM python:3.12-slim-bookworm
 
-COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /uvx /bin/
 
 WORKDIR /app
 
@@ -14,19 +14,22 @@ ENV PYTHONUNBUFFERED=1 \
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
-# EKAP v2 Turnstile verification needs a real browser: `scrapling install`
-# downloads Chromium and apt-installs its system libraries.
-RUN scrapling install \
+# EKAP v2 Turnstile verification needs a real browser with coherent
+# fingerprints: Camoufox (Firefox-based, BrowserForge) + its system libs.
+# Playwright is only a throwaway helper to apt-install the Firefox libs.
+RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && uvx --from playwright playwright install-deps firefox \
+    && python -m camoufox fetch
 
 COPY *.py ./
 
-# Turnstile never issues a token to a browser in a GPU-less Linux container, so
-# EKAP v2 tools would hang for 60 s per call. Fail fast with a pointer to the
-# local install instead. Override with EKAP_HUMAN_VERIFICATION=on on a host
-# where the verification does pass.
-ENV EKAP_HUMAN_VERIFICATION=off
+# EKAP v2 Turnstile verification runs in a real (headless) browser at request
+# time: coherent tr-TR profile, bounded retries (2 x 30 s), then a fast error
+# pointing at the local install. Set EKAP_HUMAN_VERIFICATION=off to skip the
+# browser entirely and fail fast (e.g. if verification proves flaky here).
+# ENV EKAP_HUMAN_VERIFICATION=off
 
 EXPOSE 8000
 

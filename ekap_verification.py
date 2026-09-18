@@ -8,9 +8,10 @@ frontend'in Turnstile token'ını
   POST /b_han/api/human-verification/verify  (X-Turnstile-Token başlığı)
 ile doğrulatmasıyla verilir ve 5 dakika geçerlidir (max-age=300).
 
-Turnstile token'ı gerçek bir tarayıcı gerektirdiği için sayfa Scrapling'in
-stealth tarayıcısında açılır; doğrulamayı SPA'nın kendisi yapar, biz yalnızca
-oluşan çerezi alıp httpx isteklerinde kullanırız.
+Turnstile token'ı gerçek bir tarayıcı gerektirdiği için sayfa Camoufox'un
+(Firefox tabanlı, BrowserForge parmak izli) tarayıcısında açılır;
+doğrulamayı SPA'nın kendisi yapar, biz yalnızca oluşan çerezi alıp httpx
+isteklerinde kullanırız.
 """
 
 import asyncio
@@ -26,10 +27,10 @@ VERIFICATION_PAGE_URL = "https://ekapv2.kik.gov.tr/ekap/search"
 REFRESH_MARGIN_SECONDS = 60
 DEFAULT_TTL_SECONDS = 300
 
-# Turnstile, GPU'suz Linux sunucu/container'daki tarayıcıya token vermiyor
-# (yazılımsal WebGL vb. ortam sinyalleri); doğrulama 60 sn asılıp zaman aşımına
-# uğruyor. Böyle ortamlarda bu değişken "off" yapılır ve EKAP v2 araçları
-# tarayıcı açmadan, anında ve yol gösteren bir hatayla döner.
+# Turnstile zaman zaman (özellikle GPU'suz Linux container'da) token vermeyip
+# zaman aşımına uğruyor. Böyle ortamlar için bu değişken "off" yapılabilir;
+# o zaman EKAP v2 araçları tarayıcı açmadan, anında ve yol gösteren bir
+# hatayla döner. Varsayılan (ayarlı değil ya da "on") tarayıcıyla dener.
 DISABLE_ENV = "EKAP_HUMAN_VERIFICATION"
 DISABLED_MESSAGE = (
     "EKAP v2 insan doğrulaması (Cloudflare Turnstile) bu sunucuda geçilemiyor; "
@@ -53,7 +54,7 @@ class HumanVerificationProvider:
     def __init__(
         self,
         page_url: str = VERIFICATION_PAGE_URL,
-        timeout_seconds: float = 60.0,
+        timeout_seconds: float = 30.0,
         fetch_cookie: Optional[CookieFetcher] = None,
     ):
         self.page_url = page_url
@@ -85,41 +86,87 @@ class HumanVerificationProvider:
                 self._value, self._expires_at = await self._fetch_cookie()
             return f"{COOKIE_NAME}={self._value}"
 
+    # Tarayıcı profili bilerek tutarlı bir gerçek kullanıcıya benzetilir:
+    # Windows + Türkçe yer ayarı + İstanbul saat dilimi. Camoufox (BrowserForge)
+    # WebGL/canvas/yazıtipleri dahil parmak izini tutarlı üretir; GPU'suz
+    # Linux'ta Chromium'un SwiftShader sızıntısı Turnstile'ı geçirmez.
+    # Her deneme taze profille yapılır.
+    BROWSER_OS = "windows"
+    BROWSER_LOCALE = "tr-TR"
+    BROWSER_TIMEZONE = "Europe/Istanbul"
+    MAX_ATTEMPTS = 2
+
     async def _fetch_with_browser(self) -> Tuple[str, float]:
-        # Scrapling tarayıcı bağımlılıkları ağır; yalnızca gerçekten
-        # doğrulama gerektiğinde yükle.
+        # Camoufox bağımlılığı ağır; yalnızca gerçekten doğrulama
+        # gerektiğinde yükle.
         try:
-            from scrapling.fetchers import AsyncStealthySession
+            from camoufox.async_api import AsyncCamoufox
         except ImportError as e:
             raise HumanVerificationError(
-                "EKAP insan doğrulaması için Scrapling gerekli: "
-                "pip install 'scrapling[fetchers]' && scrapling install"
+                "EKAP insan doğrulaması için Camoufox gerekli: "
+                "pip install camoufox && python -m camoufox fetch"
             ) from e
 
-        found = {}
+        last_error: Optional[Exception] = None
+        for attempt in range(1, self.MAX_ATTEMPTS + 1):
+            started = time.monotonic()
+            print(
+                f"[ekap-verify] deneme {attempt}/{self.MAX_ATTEMPTS} "
+                f"(tavan {self.timeout_seconds:.0f} sn)",
+                flush=True,
+            )
+            try:
+                cookie = await self._fetch_single_attempt(AsyncCamoufox)
+            except HumanVerificationError as e:
+                last_error = e
+                print(
+                    f"[ekap-verify] deneme {attempt} başarısız "
+                    f"({time.monotonic() - started:.1f} sn): {e}",
+                    flush=True,
+                )
+                continue
+            print(
+                f"[ekap-verify] çerez alındı "
+                f"({time.monotonic() - started:.1f} sn, deneme {attempt})",
+                flush=True,
+            )
+            return cookie
+        raise HumanVerificationError(
+            "EKAP Turnstile doğrulaması tamamlanamadı "
+            f"({self.MAX_ATTEMPTS} deneme). Son hata: {last_error}. "
+            "Bu araçlar için İhale MCP'yi kendi bilgisayarınızda çalıştırın: "
+            "uvx --from git+https://github.com/saidsurucu/ihale-mcp ihale-mcp."
+        )
 
-        async def wait_for_cookie(page):
-            deadline = time.monotonic() + self.timeout_seconds
-            while time.monotonic() < deadline:
-                for cookie in await page.context.cookies(self.page_url):
-                    if cookie["name"] == COOKIE_NAME and cookie.get("value"):
-                        found["cookie"] = cookie
-                        return page
-                await page.wait_for_timeout(250)
-            return page
+    async def _fetch_single_attempt(self, browser_cls) -> Tuple[str, float]:
+        found: dict = {}
+        deadline = time.monotonic() + self.timeout_seconds
 
         try:
-            async with AsyncStealthySession(headless=True, disable_resources=True) as session:
-                await session.fetch(
-                    self.page_url,
-                    page_action=wait_for_cookie,
-                    load_dom=False,
-                    timeout=int(self.timeout_seconds * 1000),
-                )
+            async with browser_cls(
+                headless=True,
+                os=self.BROWSER_OS,
+                locale=self.BROWSER_LOCALE,
+            ) as browser:
+                page = await browser.new_page(timezone_id=self.BROWSER_TIMEZONE)
+                try:
+                    await page.goto(self.page_url, timeout=int(self.timeout_seconds * 1000))
+                    while time.monotonic() < deadline:
+                        for cookie in await page.context.cookies(self.page_url):
+                            if cookie["name"] == COOKIE_NAME and cookie.get("value"):
+                                found["cookie"] = cookie
+                                break
+                        if found:
+                            break
+                        await page.wait_for_timeout(500)
+                finally:
+                    await page.close()
+        except HumanVerificationError:
+            raise
         except Exception as e:
             raise HumanVerificationError(
                 f"EKAP doğrulama sayfası açılamadı ({type(e).__name__}: {e}). "
-                "Tarayıcı kurulu değilse 'scrapling install' çalıştırın."
+                "Tarayıcı kurulu değilse 'python -m camoufox fetch' çalıştırın."
             ) from e
 
         cookie = found.get("cookie")
