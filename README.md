@@ -8,7 +8,7 @@ Bu proje, Türkiye'deki kamu ihalelerine (`ekap.kik.gov.tr`) erişimi kolaylaşt
 
 **✅ Kurulum Gerektirmez! Hemen Kullan!**
 
-🔗 **Remote MCP Adresi:** `https://ihalemcp.fastmcp.app/mcp`
+🔗 **Remote MCP Adresi:** `https://ihale.surucu.dev/mcp`
 
 ### Claude Desktop ile Kullanım
 
@@ -16,7 +16,7 @@ Bu proje, Türkiye'deki kamu ihalelerine (`ekap.kik.gov.tr`) erişimi kolaylaşt
 2. **Settings → Connectors → Add Custom Connector**
 3. Bilgileri girin:
    - **Name:** `İhale MCP`
-   - **URL:** `https://ihalemcp.fastmcp.app/mcp`
+    - **URL:** `https://ihale.surucu.dev/mcp`
 4. **Add** butonuna tıklayın
 5. Hemen kullanmaya başlayın! 🎉
 
@@ -82,13 +82,7 @@ Bu bölüm, İhale MCP aracını 5ire gibi Claude Desktop dışındaki MCP istem
     ```
 4.  Claude Desktop'ı kapatıp yeniden başlatın.
 
-> **Tarayıcı bileşeni (bir kez):** EKAP v2, API isteklerini Cloudflare Turnstile insan doğrulamasına bağladı. İhale MCP bu doğrulamayı [Scrapling](https://github.com/D4Vinci/Scrapling)'in gizli (headless) tarayıcısıyla otomatik geçer; bunun için tarayıcının bir kez kurulması gerekir:
->
-> ```
-> uvx --from git+https://github.com/saidsurucu/ihale-mcp scrapling install
-> ```
->
-> Doğrulama çerezi yaklaşık 5 dakika geçerlidir; süresi dolunca ilk istek birkaç saniye daha uzun sürer.
+> **Not:** EKAP v2, API isteklerini insan doğrulamasına (Cloudflare Turnstile) bağladı. İhale MCP bu doğrulamayı yerleşik tarayıcısıyla otomatik geçer; ek bir işlem gerekmez. Doğrulama çerezi yaklaşık 5 dakika geçerlidir; süresi dolunca ilk istek birkaç saniye daha uzun sürer.
 
 🛠️ **Kullanılabilir Araçlar (MCP Tools)**
 
