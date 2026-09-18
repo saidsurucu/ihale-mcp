@@ -114,3 +114,16 @@ async def test_persistent_428_raises():
     with pytest.raises(httpx.HTTPStatusError):
         await client._make_request("/x", {})
     assert calls["count"] == 2
+
+
+async def test_verification_disabled_by_env_fails_fast(monkeypatch):
+    """GPU'suz sunucuda Turnstile geçmiyor; tarayıcı hiç açılmadan hata vermeli."""
+    from ekap_verification import DISABLE_ENV, HumanVerificationError
+
+    monkeypatch.setenv(DISABLE_ENV, "off")
+    fetch, calls = counting_fetcher(["v1"])
+    provider = HumanVerificationProvider(fetch_cookie=fetch)
+
+    with pytest.raises(HumanVerificationError, match="uvx"):
+        await provider.get_cookie()
+    assert calls["count"] == 0
