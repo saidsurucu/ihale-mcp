@@ -1,0 +1,25 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+.env
+.venv/
+
+# Git / OS / IDE
+.git/
+.gitignore
+.DS_Store
+.vscode/
+.idea/
+
+# Tests and tooling caches (never needed in the image)
+tests/
+.pytest_cache/
+.ruff_cache/
+.claude/
+.playwright-mcp/
+
+docs/
