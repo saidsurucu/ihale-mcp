@@ -22,6 +22,12 @@ RUN scrapling install \
 
 COPY *.py ./
 
+# Turnstile never issues a token to a browser in a GPU-less Linux container, so
+# EKAP v2 tools would hang for 60 s per call. Fail fast with a pointer to the
+# local install instead. Override with EKAP_HUMAN_VERIFICATION=on on a host
+# where the verification does pass.
+ENV EKAP_HUMAN_VERIFICATION=off
+
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \

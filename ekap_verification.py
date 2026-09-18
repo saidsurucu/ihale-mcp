@@ -14,6 +14,7 @@ oluşan çerezi alıp httpx isteklerinde kullanırız.
 """
 
 import asyncio
+import os
 import time
 from typing import Awaitable, Callable, Optional, Tuple
 
@@ -24,6 +25,19 @@ VERIFICATION_PAGE_URL = "https://ekapv2.kik.gov.tr/ekap/search"
 # (refreshAtUtc). Süresi dolmak üzere olan çerezi kullanmamak için pay bırak.
 REFRESH_MARGIN_SECONDS = 60
 DEFAULT_TTL_SECONDS = 300
+
+# Turnstile, GPU'suz Linux sunucu/container'daki tarayıcıya token vermiyor
+# (yazılımsal WebGL vb. ortam sinyalleri); doğrulama 60 sn asılıp zaman aşımına
+# uğruyor. Böyle ortamlarda bu değişken "off" yapılır ve EKAP v2 araçları
+# tarayıcı açmadan, anında ve yol gösteren bir hatayla döner.
+DISABLE_ENV = "EKAP_HUMAN_VERIFICATION"
+DISABLED_MESSAGE = (
+    "EKAP v2 insan doğrulaması (Cloudflare Turnstile) bu sunucuda geçilemiyor; "
+    "ihale arama/detay araçları uzak sunucuda kullanılamaz. Bu araçlar için "
+    "İhale MCP'yi kendi bilgisayarınızda çalıştırın: "
+    "uvx --from git+https://github.com/saidsurucu/ihale-mcp ihale-mcp "
+    "(doğrudan temin ve ilan.gov.tr araçları uzak sunucuda çalışır)."
+)
 
 # (çerez değeri, bitiş zamanı epoch saniye)
 CookieFetcher = Callable[[], Awaitable[Tuple[str, float]]]
@@ -62,6 +76,9 @@ class HumanVerificationProvider:
         ise yenilenir; eşzamanlı istekler aynı reddi aldığında tarayıcı yalnızca
         bir kez çalışır.
         """
+        if os.environ.get(DISABLE_ENV, "").strip().lower() in ("off", "0", "false", "disabled"):
+            raise HumanVerificationError(DISABLED_MESSAGE)
+
         async with self._lock:
             current = f"{COOKIE_NAME}={self._value}" if self._value else None
             if not self._is_fresh() or (stale is not None and stale == current):
